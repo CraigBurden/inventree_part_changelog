@@ -1,26 +1,33 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools", "twine", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "inventree-part-changelog"
-version = "1.0.13"
-description = "InvenTree plugin that tracks changes to parts, categories, and parameters via a REST API"
-readme = "README.md"
-license = {file = "LICENSE"}
+name = "inventree-partchangelog"
+description = "Logs events for parts, categories, and parameters."
+dynamic = ["version"]
 authors = [
-    {name = "Craig Burden", email = "craig@plentify.co.za"}
+    { name = "Craig Burden", email = "craig@plentify.co.za" },
 ]
-requires-python = ">=3.9"
+readme = "README.md"
+license = "MIT"
 keywords = ["inventree", "plugin", "changelog", "parts"]
+requires-python = ">=3.9"
+dependencies = []
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Framework :: InvenTree",
 ]
-dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/CraigBurden/inventree_part_changelog"
 
 [project.entry-points."inventree_plugins"]
-PartChangeLogPlugin = "inventree_part_changelog.plugin:PartChangeLogPlugin"
+PartChangeLog = "partchangelog.core:PartChangeLogPlugin"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.dynamic]
+version = {attr = "partchangelog.PLUGIN_VERSION"}
