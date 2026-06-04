@@ -3,7 +3,7 @@ requires = ["setuptools", "twine", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "inventree-partchangelog"
+name = "partchangelog"
 description = "Logs events for parts, categories, and parameters."
 dynamic = ["version"]
 authors = [
