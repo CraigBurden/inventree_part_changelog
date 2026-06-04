@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 'ordering': ['-timestamp'],
+                'app_label': 'inventree_part_changelog',
             },
         ),
     ]
