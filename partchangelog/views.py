@@ -6,18 +6,17 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import PartChangeLogEntry
-from .serializers import PartChangeLogEntrySerializer
-
 
 class PartChangeLogAPIView(APIView):
     """Returns filtered change log entries, with an optional concise summary mode."""
 
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = PartChangeLogEntrySerializer
 
     def get(self, request, *args, **kwargs):
         """Return change log entries, optionally filtered and summarised."""
+        from .models import PartChangeLogEntry
+        from .serializers import PartChangeLogEntrySerializer
+
         start_str = request.query_params.get('start')
         end_str = request.query_params.get('end')
         item_types_str = request.query_params.get('item_types')
@@ -77,5 +76,5 @@ class PartChangeLogAPIView(APIView):
 
             return Response({'concise': True, 'summary': summary})
 
-        data = self.serializer_class(logs, many=True).data
+        data = PartChangeLogEntrySerializer(logs, many=True).data
         return Response({'count': len(data), 'logs': data})
