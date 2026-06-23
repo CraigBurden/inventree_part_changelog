@@ -49,26 +49,28 @@ class PartChangeLogAPIView(APIView):
 
         if is_concise:
             summary = {
-                'updated': {'parts': set(), 'categories': set(), 'parameters': set()},
-                'deleted': {'parts': set(), 'categories': set(), 'parameters': set()}
+                'updated': {'parts': set(), 'categories': set()},
+                'deleted': {'parts': set(), 'categories': set()},
             }
 
+            # Sub-entities have no slot of their own: a change to one means its
+            # PARENT part is stale, so we surface related_part_id (resolved when
+            # the log was written) rather than the sub-entity's own id. Deleted
+            # sub-entities can't be linked (the row is gone) and contribute nothing.
+            sub_entity_types = {'parameter', 'partparameter', 'supplierpart', 'manufacturerpart'}
+
             for log in logs:
-                if log.item_type == 'partcategory':
-                    type_key = 'categories'
-                elif log.item_type in ['parameter', 'partparameter']:
-                    type_key = 'parameters'
-                else:
-                    type_key = 'parts'
-
                 group = 'deleted' if log.action == 'deleted' else 'updated'
-                summary[group][type_key].add(log.item_id)
 
-                if group == 'updated':
-                    if type_key == 'parameters' and log.related_part_id:
-                        summary['updated']['parts'].add(log.related_part_id)
-                    if type_key == 'parts' and log.related_category_id:
+                if log.item_type == 'part':
+                    summary[group]['parts'].add(log.item_id)
+                    if group == 'updated' and log.related_category_id:
                         summary['updated']['categories'].add(log.related_category_id)
+                elif log.item_type == 'partcategory':
+                    summary[group]['categories'].add(log.item_id)
+                elif log.item_type in sub_entity_types:
+                    if group == 'updated' and log.related_part_id:
+                        summary['updated']['parts'].add(log.related_part_id)
 
             for group in summary:
                 for t_key in summary[group]:

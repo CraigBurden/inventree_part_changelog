@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 
-from django.apps import apps
 from django.utils import timezone
 
 from plugin import InvenTreePlugin
@@ -12,12 +11,12 @@ from . import PLUGIN_VERSION
 
 
 class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenTreePlugin):
-    """Logs creation, modification, and deletion events for parts, categories, and parameters."""
+    """Logs create/modify/delete events for parts, categories, parameters, and supplier/manufacturer parts."""
 
     NAME = "PartChangeLog"
     SLUG = "partchangelog"
     TITLE = "Part & Category Change Logger"
-    DESCRIPTION = "Logs events for parts, categories, and parameters."
+    DESCRIPTION = "Logs events for parts, categories, parameters, and supplier/manufacturer parts."
     VERSION = PLUGIN_VERSION
     AUTHOR = "Craig Burden"
     WEBSITE = "https://github.com/CraigBurden/inventree_part_changelog"
@@ -48,28 +47,54 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
             'default': True,
             'validator': bool,
         },
+        'TRACK_SUPPLIERS': {
+            'name': 'Track Supplier Parts',
+            'description': 'Log events when supplier parts are created, modified, or deleted.',
+            'default': True,
+            'validator': bool,
+        },
+        'TRACK_MANUFACTURERS': {
+            'name': 'Track Manufacturer Parts',
+            'description': 'Log events when manufacturer parts are created, modified, or deleted.',
+            'default': True,
+            'validator': bool,
+        },
+    }
+
+    # Maps the item_type derived from an event name to the setting that gates it.
+    TRACK_SETTINGS = {
+        'part': 'TRACK_PARTS',
+        'partcategory': 'TRACK_CATEGORIES',
+        'parameter': 'TRACK_PARAMETERS',
+        'partparameter': 'TRACK_PARAMETERS',
+        'supplierpart': 'TRACK_SUPPLIERS',
+        'manufacturerpart': 'TRACK_MANUFACTURERS',
     }
 
     def process_event(self, event, *args, **kwargs):
-        """Handle InvenTree change events for parts, categories, and parameters."""
+        """Handle InvenTree change events for parts, categories, parameters, and supplier/manufacturer parts.
+
+        Events fire as ``<db_table>.<action>``. Several models keep historical
+        table names, so e.g. supplier parts arrive as ``part_supplierpart.*``
+        and the generalised parameter model arrives as ``part_partparameter.*``.
+        """
         valid_events = (
             'part_part.',
             'part_partcategory.',
             'part_partparameter.',
             'part_parameter.',
+            'part_supplierpart.',
+            'company_manufacturerpart.',
         )
 
         if not event.startswith(valid_events):
             return
 
-        event_base, action = event.split('.')
+        event_base, action = event.split('.', 1)
         _, item_type = event_base.split('_', 1)
 
-        if item_type == 'part' and not self.get_setting('TRACK_PARTS'):
-            return
-        if item_type == 'partcategory' and not self.get_setting('TRACK_CATEGORIES'):
-            return
-        if item_type in ['parameter', 'partparameter'] and not self.get_setting('TRACK_PARAMETERS'):
+        track_setting = self.TRACK_SETTINGS.get(item_type)
+        if track_setting and not self.get_setting(track_setting):
             return
 
         item_id = kwargs.get('id')
@@ -90,48 +115,11 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
         related_part_id = None
         related_category_id = None
 
-        if 'part_id' in kwargs:
-            related_part_id = kwargs.get('part_id')
-        elif 'part' in kwargs:
-            related_part_id = kwargs.get('part')
-
+        # Resolve the parent part/category while the row still exists. A delete
+        # event carries only id + model and the row is already gone, so deleted
+        # sub-entities are logged unlinked (they self-heal on the next part edit).
         if action != 'deleted':
-            try:
-                instance = None
-                for model in apps.get_models():
-                    model_name = model.__name__.lower()
-                    if model_name == item_type or (item_type in ['parameter', 'partparameter'] and model_name in ['parameter', 'partparameter']):
-                        instance = model.objects.filter(id=item_id).first()
-                        if instance:
-                            break
-
-                if instance:
-                    if hasattr(instance, 'part_id') and getattr(instance, 'part_id') is not None:
-                        related_part_id = getattr(instance, 'part_id')
-                    elif hasattr(instance, 'part') and getattr(getattr(instance, 'part', None), 'pk', None):
-                        related_part_id = getattr(instance, 'part').pk
-                    elif hasattr(instance, 'content_type') and hasattr(instance, 'object_id'):
-                        ct = getattr(instance, 'content_type', None)
-                        if ct and getattr(ct, 'model', '') == 'part':
-                            related_part_id = getattr(instance, 'object_id')
-
-                    if hasattr(instance, 'category_id') and getattr(instance, 'category_id') is not None:
-                        related_category_id = getattr(instance, 'category_id')
-                    elif hasattr(instance, 'category') and getattr(getattr(instance, 'category', None), 'pk', None):
-                        related_category_id = getattr(instance, 'category').pk
-
-                    if not related_part_id and not related_category_id:
-                        for field in instance._meta.get_fields():
-                            if field.is_relation and field.many_to_one:
-                                rel_model = field.related_model
-                                if rel_model:
-                                    rel_name = rel_model.__name__.lower()
-                                    if rel_name == 'part' and not related_part_id:
-                                        related_part_id = getattr(instance, field.attname)
-                                    elif rel_name == 'partcategory' and not related_category_id:
-                                        related_category_id = getattr(instance, field.attname)
-            except Exception:
-                pass
+            related_part_id, related_category_id = self._resolve_relations(item_type, item_id)
 
         PartChangeLogEntry.objects.create(
             item_type=item_type,
@@ -140,6 +128,67 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
             related_part_id=related_part_id,
             related_category_id=related_category_id,
         )
+
+    def _resolve_relations(self, item_type, item_id):
+        """Return ``(related_part_id, related_category_id)`` for a non-deleted change.
+
+        kicache keys its cache on the parent part, so every sub-entity change
+        (parameter, supplier/manufacturer part) must resolve back to its part.
+        Resolution is best-effort and never blocks logging the event.
+        """
+        try:
+            if item_type == 'part':
+                from part.models import Part
+                part = Part.objects.filter(id=item_id).first()
+                if part is not None:
+                    return None, part.category_id
+                return None, None
+
+            if item_type == 'partcategory':
+                return None, None
+
+            if item_type in ('parameter', 'partparameter'):
+                return self._resolve_parameter_part(item_id), None
+
+            if item_type in ('supplierpart', 'manufacturerpart'):
+                from company.models import ManufacturerPart, SupplierPart
+                model = SupplierPart if item_type == 'supplierpart' else ManufacturerPart
+                instance = model.objects.filter(id=item_id).first()
+                if instance is not None:
+                    return getattr(instance, 'part_id', None), None
+        except Exception:
+            pass
+
+        return None, None
+
+    def _resolve_parameter_part(self, item_id):
+        """Resolve the parent part id for a parameter change.
+
+        InvenTree 1.3+ generalised parameters: the model lives in ``common`` and
+        links to its owner via ``model_type`` (a ContentType) + ``model_id``;
+        only owners of type ``part`` are relevant. Older InvenTree exposed
+        ``part.models.PartParameter`` with a direct ``part`` foreign key.
+        """
+        try:
+            from common.models import Parameter
+            param = Parameter.objects.filter(id=item_id).first()
+            if param is not None:
+                model_type = getattr(param, 'model_type', None)
+                if model_type is not None and getattr(model_type, 'model', '') == 'part':
+                    return getattr(param, 'model_id', None)
+            return None
+        except ImportError:
+            pass
+
+        try:
+            from part.models import PartParameter
+            param = PartParameter.objects.filter(id=item_id).first()
+            if param is not None:
+                return getattr(param, 'part_id', None)
+        except ImportError:
+            pass
+
+        return None
 
     def setup_urls(self):
         """Register the change log API endpoint."""
