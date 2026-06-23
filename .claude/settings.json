@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -sSL https://raw.githubusercontent.com/inventree/InvenTree/1.3.2/src/backend/InvenTree/common/models.py -o common_models.py)",
+      "Bash(python -m py_compile partchangelog/core.py partchangelog/views.py partchangelog/__init__.py)",
+      "Bash(git --no-pager diff --stat)",
+      "Bash(git --no-pager diff)",
+      "Bash(curl -sSL https://raw.githubusercontent.com/inventree/InvenTree/1.3.2/src/backend/InvenTree/plugin/plugin.py)",
+      "Bash(curl -sSL https://raw.githubusercontent.com/inventree/InvenTree/1.3.2/src/backend/InvenTree/plugin/api.py)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
+    ]
+  }
+}
