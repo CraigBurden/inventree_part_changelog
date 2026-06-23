@@ -53,11 +53,11 @@ class PartChangeLogAPIView(APIView):
                 'deleted': {'parts': set(), 'categories': set()},
             }
 
-            # Sub-entities have no slot of their own: a change to one means its
+            # Parameters have no slot of their own: a parameter change means its
             # PARENT part is stale, so we surface related_part_id (resolved when
-            # the log was written) rather than the sub-entity's own id. Deleted
-            # sub-entities can't be linked (the row is gone) and contribute nothing.
-            sub_entity_types = {'parameter', 'partparameter', 'supplierpart', 'manufacturerpart'}
+            # the log was written) rather than the parameter's own id. Deleted
+            # parameters can't be linked (the row is gone) and contribute nothing.
+            sub_entity_types = {'parameter', 'partparameter'}
 
             for log in logs:
                 group = 'deleted' if log.action == 'deleted' else 'updated'

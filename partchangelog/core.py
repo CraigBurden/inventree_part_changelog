@@ -11,12 +11,12 @@ from . import PLUGIN_VERSION
 
 
 class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenTreePlugin):
-    """Logs create/modify/delete events for parts, categories, parameters, and supplier/manufacturer parts."""
+    """Logs creation, modification, and deletion events for parts, categories, and parameters."""
 
     NAME = "PartChangeLog"
     SLUG = "partchangelog"
     TITLE = "Part & Category Change Logger"
-    DESCRIPTION = "Logs events for parts, categories, parameters, and supplier/manufacturer parts."
+    DESCRIPTION = "Logs events for parts, categories, and parameters."
     VERSION = PLUGIN_VERSION
     AUTHOR = "Craig Burden"
     WEBSITE = "https://github.com/CraigBurden/inventree_part_changelog"
@@ -47,18 +47,6 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
             'default': True,
             'validator': bool,
         },
-        'TRACK_SUPPLIERS': {
-            'name': 'Track Supplier Parts',
-            'description': 'Log events when supplier parts are created, modified, or deleted.',
-            'default': True,
-            'validator': bool,
-        },
-        'TRACK_MANUFACTURERS': {
-            'name': 'Track Manufacturer Parts',
-            'description': 'Log events when manufacturer parts are created, modified, or deleted.',
-            'default': True,
-            'validator': bool,
-        },
     }
 
     # Maps the item_type derived from an event name to the setting that gates it.
@@ -67,24 +55,19 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
         'partcategory': 'TRACK_CATEGORIES',
         'parameter': 'TRACK_PARAMETERS',
         'partparameter': 'TRACK_PARAMETERS',
-        'supplierpart': 'TRACK_SUPPLIERS',
-        'manufacturerpart': 'TRACK_MANUFACTURERS',
     }
 
     def process_event(self, event, *args, **kwargs):
-        """Handle InvenTree change events for parts, categories, parameters, and supplier/manufacturer parts.
+        """Handle InvenTree change events for parts, categories, and parameters.
 
-        Events fire as ``<db_table>.<action>``. Several models keep historical
-        table names, so e.g. supplier parts arrive as ``part_supplierpart.*``
-        and the generalised parameter model arrives as ``part_partparameter.*``.
+        Events fire as ``<db_table>.<action>``; the generalised parameter model
+        keeps its historical table name and arrives as ``part_partparameter.*``.
         """
         valid_events = (
             'part_part.',
             'part_partcategory.',
             'part_partparameter.',
             'part_parameter.',
-            'part_supplierpart.',
-            'company_manufacturerpart.',
         )
 
         if not event.startswith(valid_events):
@@ -132,9 +115,9 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
     def _resolve_relations(self, item_type, item_id):
         """Return ``(related_part_id, related_category_id)`` for a non-deleted change.
 
-        kicache keys its cache on the parent part, so every sub-entity change
-        (parameter, supplier/manufacturer part) must resolve back to its part.
-        Resolution is best-effort and never blocks logging the event.
+        kicache keys its cache on the parent part, so a parameter change must
+        resolve back to its part. Resolution is best-effort and never blocks
+        logging the event.
         """
         try:
             if item_type == 'part':
@@ -149,13 +132,6 @@ class PartChangeLogPlugin(AppMixin, EventMixin, SettingsMixin, UrlsMixin, InvenT
 
             if item_type in ('parameter', 'partparameter'):
                 return self._resolve_parameter_part(item_id), None
-
-            if item_type in ('supplierpart', 'manufacturerpart'):
-                from company.models import ManufacturerPart, SupplierPart
-                model = SupplierPart if item_type == 'supplierpart' else ManufacturerPart
-                instance = model.objects.filter(id=item_id).first()
-                if instance is not None:
-                    return getattr(instance, 'part_id', None), None
         except Exception:
             pass
 
